@@ -9,12 +9,6 @@ struct FlagsRegister {
     carry: bool
 }
 
-struct FlagsRegister {
-   zero: bool,
-   subtract: bool,
-   half_carry: bool,
-   carry: bool
-}
 const ZERO_FLAG_POSITION: u8 = 7;
 const SUBTRACT_FLAG_POSITION: u8 = 6;
 const HALF_CARRY_FLAG_POSITION: u8 = 5;
@@ -58,12 +52,12 @@ struct Registers {
 
 impl Registers {
     fn get_af(&self) -> u16 {
-        (self.a as u16 << 8) | self.f as u16;
+        (self.a as u16 << 8) | (u8::from(self.f)) as u16;
     }
 
     fn set_af(&mut self, val: u16) {
         self.a = ((val >> 8) & 0xFF) as u8;
-        self.f = (val & 0xFF) as u8;
+        self.f = FlagsRegister::from((val & 0xFF) as u8);
     }
 
     fn get_bc(&self) -> u16 {
