@@ -31,7 +31,7 @@ impl Cpu {
         self.registers.f.subtract = false;
         self.registers.f.carry = overflow;
         self.registers.f.half_carry = ((self.registers.a & 0xF) + (val & 0xF)) > 0xF;
-        val
+        new_val
     }
 
     pub fn execute(&mut self, instruction: Instruction) {
