@@ -1,9 +1,10 @@
-#[path = "cpu/cpu.rs"] mod cpu;
+#[path = "cpu/cpu.rs"]
+mod cpu;
 
 use cpu::Cpu;
 
 fn main() {
-    let cpu = Cpu::new;
+	let cpu = Cpu::new;
 
-    println!("Hello, world!");
+	println!("Hello, world!");
 }
