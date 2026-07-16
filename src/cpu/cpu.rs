@@ -1,36 +1,25 @@
 #[path = "registers.rs"] mod registers;
 #[path = "flags_register.rs"] mod flags_register;
+#[path = "memory.rs"] mod memory;
+#[path = "instruction.rs"] mod instruction;
 
 use registers::Registers;
 use flags_register::FlagsRegister;
-
-enum Instruction {
-  ADD(ArithmeticTarget),
-  ADDHL(HLTarget),
-  ADC(ArithmeticTarget),
-  SUB(ArithmeticTarget),
-  SBC(ArithmeticTarget),
-  AND(ArithmeticTarget),
-  OR(ArithmeticTarget),
-  XOR(ArithmeticTarget),
-}
-
-enum ArithmeticTarget {
-  A, B, C, D, E, H, L,
-}
-
-enum HLTarget {
-    BC, DE, HL,
-}
+use memory::MemoryBus;
+use instruction::{Instruction, ArithmeticTarget, HLTarget};
 
 pub struct Cpu {
     registers: Registers,
+    pc: u16,
+    bus: MemoryBus,
 }
 
 impl Cpu {
     pub fn new() -> Self {
         let cpu = Cpu {
             registers: Registers::new(),
+            pc: 0,
+            bus: MemoryBus::new(),
         };
         cpu
     }
@@ -111,18 +100,23 @@ impl Cpu {
         new_val
     }
 
+    fn read_target_value(&self, target: &ArithmeticTarget) -> u8 {
+        match target {
+            ArithmeticTarget::A => self.registers.a,
+            ArithmeticTarget::B => self.registers.b,
+            ArithmeticTarget::C => self.registers.c,
+            ArithmeticTarget::D => self.registers.d,
+            ArithmeticTarget::E => self.registers.e,
+            ArithmeticTarget::H => self.registers.h,
+            ArithmeticTarget::L => self.registers.l,
+        }
+    }
+
     pub fn execute(&mut self, instruction: Instruction) {
         match instruction {
             Instruction::ADD(target) => {
-                match target {
-                    ArithmeticTarget::A => { self.registers.a = self.add(self.registers.a); },
-                    ArithmeticTarget::B => { self.registers.a = self.add(self.registers.b); },
-                    ArithmeticTarget::C => { self.registers.a = self.add(self.registers.c); },
-                    ArithmeticTarget::D => { self.registers.a = self.add(self.registers.d); },
-                    ArithmeticTarget::E => { self.registers.a = self.add(self.registers.e); },
-                    ArithmeticTarget::H => { self.registers.a = self.add(self.registers.h); },
-                    ArithmeticTarget::L => { self.registers.a = self.add(self.registers.l); },
-                }
+                let value = self.read_target_value(&target);
+                self.registers.a = self.add(value);
             },
             Instruction::ADDHL(target) => {
                 match target {
@@ -132,74 +126,39 @@ impl Cpu {
                 }
             },
             Instruction::ADC(target) => {
-                match target {
-                    ArithmeticTarget::A => { self.registers.a = self.add_carry(self.registers.a); },
-                    ArithmeticTarget::B => { self.registers.a = self.add_carry(self.registers.b); },
-                    ArithmeticTarget::C => { self.registers.a = self.add_carry(self.registers.c); },
-                    ArithmeticTarget::D => { self.registers.a = self.add_carry(self.registers.d); },
-                    ArithmeticTarget::E => { self.registers.a = self.add_carry(self.registers.e); },
-                    ArithmeticTarget::H => { self.registers.a = self.add_carry(self.registers.h); },
-                    ArithmeticTarget::L => { self.registers.a = self.add_carry(self.registers.l); },
-                }
+                let value = self.read_target_value(&target);
+                self.registers.a = self.add_carry(value);
             },
             Instruction::SUB(target) => {
-                match target {
-                    ArithmeticTarget::A => { self.registers.a = self.sub(self.registers.a); },
-                    ArithmeticTarget::B => { self.registers.a = self.sub(self.registers.b); },
-                    ArithmeticTarget::C => { self.registers.a = self.sub(self.registers.c); },
-                    ArithmeticTarget::D => { self.registers.a = self.sub(self.registers.d); },
-                    ArithmeticTarget::E => { self.registers.a = self.sub(self.registers.e); },
-                    ArithmeticTarget::H => { self.registers.a = self.sub(self.registers.h); },
-                    ArithmeticTarget::L => { self.registers.a = self.sub(self.registers.l); },
-                }
+                let value = self.read_target_value(&target);
+                self.registers.a = self.sub(value);
             },
             Instruction::SBC(target) => {
-                match target {
-                    ArithmeticTarget::A => { self.registers.a = self.sub_carry(self.registers.a); },
-                    ArithmeticTarget::B => { self.registers.a = self.sub_carry(self.registers.b); },
-                    ArithmeticTarget::C => { self.registers.a = self.sub_carry(self.registers.c); },
-                    ArithmeticTarget::D => { self.registers.a = self.sub_carry(self.registers.d); },
-                    ArithmeticTarget::E => { self.registers.a = self.sub_carry(self.registers.e); },
-                    ArithmeticTarget::H => { self.registers.a = self.sub_carry(self.registers.h); },
-                    ArithmeticTarget::L => { self.registers.a = self.sub_carry(self.registers.l); },
-                }
+                let value = self.read_target_value(&target);
+                self.registers.a = self.sub_carry(value);
             },
 
             Instruction::AND(target) => {
-                match target {
-                    ArithmeticTarget::A => { self.registers.a = self.and(self.registers.a); },
-                    ArithmeticTarget::B => { self.registers.a = self.and(self.registers.b); },
-                    ArithmeticTarget::C => { self.registers.a = self.and(self.registers.c); },
-                    ArithmeticTarget::D => { self.registers.a = self.and(self.registers.d); },
-                    ArithmeticTarget::E => { self.registers.a = self.and(self.registers.e); },
-                    ArithmeticTarget::H => { self.registers.a = self.and(self.registers.h); },
-                    ArithmeticTarget::L => { self.registers.a = self.and(self.registers.l); },
-                }
+                let value = self.read_target_value(&target);
+                self.registers.a = self.and(value);
             },
             Instruction::OR(target) => {
-                match target {
-                    ArithmeticTarget::A => { self.registers.a = self.or(self.registers.a); },
-                    ArithmeticTarget::B => { self.registers.a = self.or(self.registers.b); },
-                    ArithmeticTarget::C => { self.registers.a = self.or(self.registers.c); },
-                    ArithmeticTarget::D => { self.registers.a = self.or(self.registers.d); },
-                    ArithmeticTarget::E => { self.registers.a = self.or(self.registers.e); },
-                    ArithmeticTarget::H => { self.registers.a = self.or(self.registers.h); },
-                    ArithmeticTarget::L => { self.registers.a = self.or(self.registers.l); },
-                }
+                let value = self.read_target_value(&target);
+                self.registers.a = self.or(value);
+            },
+            Instruction::XOR(target) => {
+                let value = self.read_target_value(&target);
+                self.registers.a = self.xor(value);
+            },
+            Instruction::OR(target) => {
+                let value = self.read_target_value(&target);
+                self.registers.a = self.or(value);
             },
             
             Instruction::XOR(target) => {
-                match target {
-                    ArithmeticTarget::A => { self.registers.a = self.xor(self.registers.a); },
-                    ArithmeticTarget::B => { self.registers.a = self.xor(self.registers.b); },
-                    ArithmeticTarget::C => { self.registers.a = self.xor(self.registers.c); },
-                    ArithmeticTarget::D => { self.registers.a = self.xor(self.registers.d); },
-                    ArithmeticTarget::E => { self.registers.a = self.xor(self.registers.e); },
-                    ArithmeticTarget::H => { self.registers.a = self.xor(self.registers.h); },
-                    ArithmeticTarget::L => { self.registers.a = self.xor(self.registers.l); },
-                }
+                let value = self.read_target_value(&target);
+                self.registers.a = self.xor(value);
             },
-            _ => {},
         }
     }
 }
