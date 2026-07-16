@@ -7,6 +7,7 @@ pub enum Instruction {
 	AND(ArithmeticTarget),
 	OR(ArithmeticTarget),
 	XOR(ArithmeticTarget),
+	JP(JumpTest),
 }
 
 impl Instruction {
@@ -52,4 +53,12 @@ pub enum HLTarget {
 	BC,
 	DE,
 	HL,
+}
+
+pub enum JumpTest {
+    NotZero,
+    Zero,
+    NotCarry,
+    Carry,
+    Always
 }

@@ -8,7 +8,7 @@ mod memory;
 mod registers;
 
 use flags_register::FlagsRegister;
-use instruction::{ArithmeticTarget, HLTarget, Instruction};
+use instruction::{ArithmeticTarget, HLTarget, Instruction, JumpTest};
 use memory::MemoryBus;
 use registers::Registers;
 
@@ -126,6 +126,16 @@ impl Cpu {
 		new_val
 	}
 
+	fn jump(&mut self, should_jump: bool) -> u16 {
+		if should_jump {
+			let low = self.bus.read_byte(self.pc.wrapping_add(1)) as u16;
+			let high = self.bus.read_byte(self.pc.wrapping_add(2)) as u16;
+			(high << 8) | low
+		} else {
+			self.pc.wrapping_add(3)
+		}
+	}
+
 	fn read_target_value(&self, target: &ArithmeticTarget) -> u8 {
 		match target {
 			ArithmeticTarget::A => self.registers.a,
@@ -199,6 +209,16 @@ impl Cpu {
 				self.registers.a = self.xor(value);
 				self.pc.wrapping_add(1)
 			}
+			Instruction::JP(test) => {
+                let jump_condition = match test {
+                    JumpTest::NotZero => !self.registers.f.zero,
+                    JumpTest::NotCarry => !self.registers.f.carry,
+                    JumpTest::Zero => self.registers.f.zero,
+                    JumpTest::Carry => self.registers.f.carry,
+                    JumpTest::Always => true
+                };
+                self.jump(jump_condition)
+            },
 		}
 	}
 }
