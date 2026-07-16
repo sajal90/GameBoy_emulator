@@ -70,12 +70,11 @@ impl Cpu {
 
 	fn add_carry(&mut self, val: u8) -> u8 {
 		let carry = if self.registers.f.carry { 1 } else { 0 };
-		// BUG: if val == 0xFF and carry is set, this will overflow
-		//      same in the sub_carry method
-		let (new_val, overflow) = self.registers.a.overflowing_add(val + carry);
+		let sum = (val as u16) + (carry as u16);
+		let (new_val, overflow) = self.registers.a.overflowing_add(sum as u8);
 		self.registers.f.zero = new_val == 0;
 		self.registers.f.subtract = false;
-		self.registers.f.carry = overflow;
+		self.registers.f.carry = overflow || sum > 0xFF;
 		self.registers.f.half_carry = ((self.registers.a & 0xF) + (val & 0xF) + carry) > 0xF;
 		new_val
 	}
@@ -91,10 +90,11 @@ impl Cpu {
 
 	fn sub_carry(&mut self, val: u8) -> u8 {
 		let carry = if self.registers.f.carry { 1 } else { 0 };
-		let (new_val, borrow) = self.registers.a.overflowing_sub(val + carry);
+		let sum = (val as u16) + (carry as u16);
+		let (new_val, borrow) = self.registers.a.overflowing_sub(sum as u8);
 		self.registers.f.zero = new_val == 0;
 		self.registers.f.subtract = true;
-		self.registers.f.carry = borrow;
+		self.registers.f.carry = borrow || sum > 0xFF;
 		self.registers.f.half_carry = (self.registers.a & 0xF) < ((val & 0xF) + carry);
 		new_val
 	}
