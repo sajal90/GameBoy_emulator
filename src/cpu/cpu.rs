@@ -10,6 +10,7 @@ mod registers;
 use flags_register::FlagsRegister;
 use instruction::{ArithmeticTarget, HLTarget, Instruction, JumpTest};
 use instruction::{LoadByteSource, LoadByteTarget, LoadType};
+use instruction::{IncDecTarget};
 use memory::MemoryBus;
 use registers::Registers;
 
@@ -131,6 +132,22 @@ impl Cpu {
 		new_val
 	}
 
+	fn inc(&mut self, value: u8) -> u8 {
+        let new_val = value.wrapping_add(1);
+        self.registers.f.zero = new_val == 0;
+        self.registers.f.subtract = false;
+        self.registers.f.half_carry = (value & 0xF) == 0xF;
+        new_val
+    }
+
+    fn dec(&mut self, value: u8) -> u8 {
+        let new_val = value.wrapping_sub(1);
+        self.registers.f.zero = new_val == 0;
+        self.registers.f.subtract = true;
+        self.registers.f.half_carry = (value & 0xF) == 0;
+        new_val
+    }
+
 	fn jump(&mut self, should_jump: bool) -> u16 {
 		if should_jump {
 			let low = self.bus.read_byte(self.pc.wrapping_add(1)) as u16;
@@ -150,6 +167,8 @@ impl Cpu {
 			ArithmeticTarget::E => self.registers.e,
 			ArithmeticTarget::H => self.registers.h,
 			ArithmeticTarget::L => self.registers.l,
+			ArithmeticTarget::HLI => self.bus.read_byte(self.registers.get_hl()),
+			ArithmeticTarget::D8 => self.read_next_byte(),
 		}
 	}
 
@@ -158,8 +177,91 @@ impl Cpu {
 			Instruction::ADD(target) => {
 				let value = self.read_target_value(&target);
 				self.registers.a = self.add(value);
-				self.pc.wrapping_add(1)
+				self.pc.wrapping_add(target.pc_increment())
 			}
+			Instruction::ADC(target) => {
+				let value = self.read_target_value(&target);
+				self.registers.a = self.add_carry(value);
+				self.pc.wrapping_add(target.pc_increment())
+			}
+			Instruction::SUB(target) => {
+				let value = self.read_target_value(&target);
+				self.registers.a = self.sub(value);
+				self.pc.wrapping_add(target.pc_increment())
+			}
+			Instruction::SBC(target) => {
+				let value = self.read_target_value(&target);
+				self.registers.a = self.sub_carry(value);
+				self.pc.wrapping_add(target.pc_increment())
+			}
+			Instruction::AND(target) => {
+				let value = self.read_target_value(&target);
+				self.registers.a = self.and(value);
+				self.pc.wrapping_add(target.pc_increment())
+			}
+			Instruction::OR(target) => {
+				let value = self.read_target_value(&target);
+				self.registers.a = self.or(value);
+				self.pc.wrapping_add(target.pc_increment())
+			}
+			Instruction::XOR(target) => {
+				let value = self.read_target_value(&target);
+				self.registers.a = self.xor(value);
+				self.pc.wrapping_add(target.pc_increment())
+			}
+			Instruction::OR(target) => {
+				let value = self.read_target_value(&target);
+				self.registers.a = self.or(value);
+				self.pc.wrapping_add(target.pc_increment())
+			}
+			Instruction::XOR(target) => {
+				let value = self.read_target_value(&target);
+				self.registers.a = self.xor(value);
+				self.pc.wrapping_add(target.pc_increment())
+			}
+			Instruction::CP(target) => {
+                let value = self.read_target_value(&target);
+                self.sub(value); // Calls sub to set flags, but we ignore the returned value
+                self.pc.wrapping_add(target.pc_increment())
+            }
+			Instruction::INC(target) => {
+                match target {
+                    IncDecTarget::A => { self.registers.a = self.inc(self.registers.a); }
+                    IncDecTarget::B => { self.registers.b = self.inc(self.registers.b); }
+                    IncDecTarget::C => { self.registers.c = self.inc(self.registers.c); }
+                    IncDecTarget::D => { self.registers.d = self.inc(self.registers.d); }
+                    IncDecTarget::E => { self.registers.e = self.inc(self.registers.e); }
+                    IncDecTarget::H => { self.registers.h = self.inc(self.registers.h); }
+                    IncDecTarget::L => { self.registers.l = self.inc(self.registers.l); }
+                    IncDecTarget::HLI => {
+                        let addr = self.registers.get_hl();
+                        let value = self.bus.read_byte(addr);
+                        let new_val = self.inc(value);
+                        self.bus.write_byte(addr, new_val);
+                    }
+                }
+                self.pc.wrapping_add(1)
+            },
+            Instruction::DEC(target) => {
+                match target {
+                    IncDecTarget::A => { self.registers.a = self.dec(self.registers.a); }
+                    IncDecTarget::B => { self.registers.b = self.dec(self.registers.b); }
+                    IncDecTarget::C => { self.registers.c = self.dec(self.registers.c); }
+                    IncDecTarget::D => { self.registers.d = self.dec(self.registers.d); }
+                    IncDecTarget::E => { self.registers.e = self.dec(self.registers.e); }
+                    IncDecTarget::H => { self.registers.h = self.dec(self.registers.h); }
+                    IncDecTarget::L => { self.registers.l = self.dec(self.registers.l); }
+                    IncDecTarget::HLI => {
+                        let addr = self.registers.get_hl();
+                        let value = self.bus.read_byte(addr);
+                        let new_val = self.dec(value);
+                        self.bus.write_byte(addr, new_val);
+                    }
+                }
+                self.pc.wrapping_add(1)
+            },
+
+
 			Instruction::ADDHL(target) => {
 				match target {
 					HLTarget::BC => {
@@ -172,46 +274,6 @@ impl Cpu {
 						self.add_hl(self.registers.get_hl());
 					}
 				}
-				self.pc.wrapping_add(1)
-			}
-			Instruction::ADC(target) => {
-				let value = self.read_target_value(&target);
-				self.registers.a = self.add_carry(value);
-				self.pc.wrapping_add(1)
-			}
-			Instruction::SUB(target) => {
-				let value = self.read_target_value(&target);
-				self.registers.a = self.sub(value);
-				self.pc.wrapping_add(1)
-			}
-			Instruction::SBC(target) => {
-				let value = self.read_target_value(&target);
-				self.registers.a = self.sub_carry(value);
-				self.pc.wrapping_add(1)
-			}
-			Instruction::AND(target) => {
-				let value = self.read_target_value(&target);
-				self.registers.a = self.and(value);
-				self.pc.wrapping_add(1)
-			}
-			Instruction::OR(target) => {
-				let value = self.read_target_value(&target);
-				self.registers.a = self.or(value);
-				self.pc.wrapping_add(1)
-			}
-			Instruction::XOR(target) => {
-				let value = self.read_target_value(&target);
-				self.registers.a = self.xor(value);
-				self.pc.wrapping_add(1)
-			}
-			Instruction::OR(target) => {
-				let value = self.read_target_value(&target);
-				self.registers.a = self.or(value);
-				self.pc.wrapping_add(1)
-			}
-			Instruction::XOR(target) => {
-				let value = self.read_target_value(&target);
-				self.registers.a = self.xor(value);
 				self.pc.wrapping_add(1)
 			}
 			Instruction::JP(test) => {
