@@ -177,6 +177,33 @@ impl Cpu {
 		(msb << 8) | lsb
 	}
 
+	fn read_next_word(&self) -> u16 {
+		// Gameboy is little endian so read pc + 2 as most significant byte
+		// and pc + 1 as least significant byte
+		let lsb = self.bus.read_byte(self.pc.wrapping_add(1)) as u16;
+		let msb = self.bus.read_byte(self.pc.wrapping_add(2)) as u16;
+		(msb << 8) | lsb
+	}
+
+	fn call(&mut self, should_jump: bool) -> u16 {
+		let next_pc = self.pc.wrapping_add(3);
+		if should_jump {
+			self.push(next_pc);
+			self.read_next_word()
+		} else {
+			next_pc
+		}
+	}
+
+	fn return_(&mut self, should_jump: bool) -> u16 {
+		if should_jump {
+			self.pop()
+		} else {
+			// RET conditional instructions are only 1 byte long!
+			self.pc.wrapping_add(1)
+		}
+	}
+
 	fn read_target_value(&self, target: &ArithmeticTarget) -> u8 {
 		match target {
 			ArithmeticTarget::A => self.registers.a,
@@ -385,6 +412,27 @@ impl Cpu {
 					StackTarget::HL => self.registers.set_hl(result),
 				};
 				self.pc.wrapping_add(1)
+			}
+			Instruction::CALL(test) => {
+				let jump_condition = match test {
+					JumpTest::NotZero => !self.registers.f.zero,
+					JumpTest::NotCarry => !self.registers.f.carry,
+					JumpTest::Zero => self.registers.f.zero,
+					JumpTest::Carry => self.registers.f.carry,
+					JumpTest::Always => true,
+				};
+				self.call(jump_condition)
+			}
+
+			Instruction::RET(test) => {
+				let jump_condition = match test {
+					JumpTest::NotZero => !self.registers.f.zero,
+					JumpTest::NotCarry => !self.registers.f.carry,
+					JumpTest::Zero => self.registers.f.zero,
+					JumpTest::Carry => self.registers.f.carry,
+					JumpTest::Always => true,
+				};
+				self.return_(jump_condition)
 			}
 		}
 	}

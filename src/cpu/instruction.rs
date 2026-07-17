@@ -19,6 +19,8 @@ pub enum Instruction {
 	// stack instructions
 	PUSH(StackTarget),
 	POP(StackTarget),
+	CALL(JumpTest),
+	RET(JumpTest),
 }
 
 impl Instruction {
@@ -150,6 +152,19 @@ impl Instruction {
 			0xD5 => Some(Instruction::PUSH(StackTarget::DE)),
 			0xE5 => Some(Instruction::PUSH(StackTarget::HL)),
 			0xF5 => Some(Instruction::PUSH(StackTarget::AF)),
+			// CALL
+			0xCD => Some(Instruction::CALL(JumpTest::Always)),
+			0xC4 => Some(Instruction::CALL(JumpTest::NotZero)),
+			0xCC => Some(Instruction::CALL(JumpTest::Zero)),
+			0xD4 => Some(Instruction::CALL(JumpTest::NotCarry)),
+			0xDC => Some(Instruction::CALL(JumpTest::Carry)),
+
+			// RET
+			0xC9 => Some(Instruction::RET(JumpTest::Always)),
+			0xC0 => Some(Instruction::RET(JumpTest::NotZero)),
+			0xC8 => Some(Instruction::RET(JumpTest::Zero)),
+			0xD0 => Some(Instruction::RET(JumpTest::NotCarry)),
+			0xD8 => Some(Instruction::RET(JumpTest::Carry)),
 			_ => None,
 		}
 	}
