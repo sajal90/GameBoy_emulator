@@ -9,7 +9,7 @@ mod registers;
 
 use instruction::{ArithmeticTarget, HLTarget, Instruction, JumpTest};
 use instruction::{IncDecTarget, StackTarget};
-use instruction::{LoadByteSource, LoadByteTarget, LoadType};
+use instruction::{LoadByteSource, LoadByteTarget, LoadType, LoadWordSource, LoadWordTarget};
 use memory::MemoryBus;
 use registers::Registers;
 
@@ -390,6 +390,20 @@ impl Cpu {
 						LoadByteSource::D8 => self.pc.wrapping_add(2),
 						_ => self.pc.wrapping_add(1),
 					}
+				}
+				LoadType::Word(target, source) => {
+					let source_value = match source {
+						LoadWordSource::D16 => self.read_next_word(),
+					};
+
+					match target {
+						LoadWordTarget::BC => self.registers.set_bc(source_value),
+						LoadWordTarget::DE => self.registers.set_de(source_value),
+						LoadWordTarget::HL => self.registers.set_hl(source_value),
+						LoadWordTarget::SP => self.sp = source_value,
+					};
+
+					self.pc.wrapping_add(3)
 				}
 			},
 			Instruction::PUSH(target) => {

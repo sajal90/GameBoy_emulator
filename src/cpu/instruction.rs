@@ -158,13 +158,55 @@ impl Instruction {
 			0xCC => Some(Instruction::CALL(JumpTest::Zero)),
 			0xD4 => Some(Instruction::CALL(JumpTest::NotCarry)),
 			0xDC => Some(Instruction::CALL(JumpTest::Carry)),
-
 			// RET
 			0xC9 => Some(Instruction::RET(JumpTest::Always)),
 			0xC0 => Some(Instruction::RET(JumpTest::NotZero)),
 			0xC8 => Some(Instruction::RET(JumpTest::Zero)),
 			0xD0 => Some(Instruction::RET(JumpTest::NotCarry)),
 			0xD8 => Some(Instruction::RET(JumpTest::Carry)),
+
+			// JUMPS
+			0xC3 => Some(Instruction::JP(JumpTest::Always)),
+			0xC2 => Some(Instruction::JP(JumpTest::NotZero)),
+			0xCA => Some(Instruction::JP(JumpTest::Zero)),
+			0xD2 => Some(Instruction::JP(JumpTest::NotCarry)),
+			0xDA => Some(Instruction::JP(JumpTest::Carry)),
+
+			// 8-bit Loads
+			0x06 => Some(Instruction::LD(LoadType::Byte(
+				LoadByteTarget::B,
+				LoadByteSource::D8,
+			))),
+			0x78 => Some(Instruction::LD(LoadType::Byte(
+				LoadByteTarget::A,
+				LoadByteSource::B,
+			))),
+			0x7E => Some(Instruction::LD(LoadType::Byte(
+				LoadByteTarget::A,
+				LoadByteSource::HLI,
+			))),
+			0x77 => Some(Instruction::LD(LoadType::Byte(
+				LoadByteTarget::HLI,
+				LoadByteSource::A,
+			))),
+			// 16-bit Load
+			0x01 => Some(Instruction::LD(LoadType::Word(
+				LoadWordTarget::BC,
+				LoadWordSource::D16,
+			))),
+			0x11 => Some(Instruction::LD(LoadType::Word(
+				LoadWordTarget::DE,
+				LoadWordSource::D16,
+			))),
+			0x21 => Some(Instruction::LD(LoadType::Word(
+				LoadWordTarget::HL,
+				LoadWordSource::D16,
+			))),
+			0x31 => Some(Instruction::LD(LoadType::Word(
+				LoadWordTarget::SP,
+				LoadWordSource::D16,
+			))),
+
 			_ => None,
 		}
 	}
@@ -241,6 +283,18 @@ pub enum LoadByteSource {
 
 pub enum LoadType {
 	Byte(LoadByteTarget, LoadByteSource),
+	Word(LoadWordTarget, LoadWordSource),
+}
+
+pub enum LoadWordTarget {
+	BC,
+	DE,
+	HL,
+	SP,
+}
+
+pub enum LoadWordSource {
+	D16,
 }
 
 pub enum StackTarget {
