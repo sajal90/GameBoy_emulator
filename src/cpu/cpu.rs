@@ -8,7 +8,7 @@ mod memory;
 mod registers;
 
 use instruction::{ArithmeticTarget, HLTarget, Instruction, JumpTest};
-use instruction::{IncDecTarget, StackTarget};
+use instruction::{IncDecTarget, IncDecTarget16, StackTarget};
 use instruction::{LoadByteSource, LoadByteTarget, LoadType, LoadWordSource, LoadWordTarget};
 use memory::MemoryBus;
 use registers::Registers;
@@ -199,7 +199,7 @@ impl Cpu {
 		if should_jump {
 			self.pop()
 		} else {
-			// RET conditional instructions are only 1 byte long!
+			// RET conditional instructions are only 1 byte long
 			self.pc.wrapping_add(1)
 		}
 	}
@@ -346,9 +346,130 @@ impl Cpu {
 					HLTarget::HL => {
 						self.add_hl(self.registers.get_hl());
 					}
+					HLTarget::SP => {
+						self.add_hl(self.sp);
+					}
 				}
 				self.pc.wrapping_add(1)
 			}
+			// 16-BIT INC/DEC
+			Instruction::INC16(target) => {
+				match target {
+					IncDecTarget16::BC => self
+						.registers
+						.set_bc(self.registers.get_bc().wrapping_add(1)),
+					IncDecTarget16::DE => self
+						.registers
+						.set_de(self.registers.get_de().wrapping_add(1)),
+					IncDecTarget16::HL => self
+						.registers
+						.set_hl(self.registers.get_hl().wrapping_add(1)),
+					IncDecTarget16::SP => self.sp = self.sp.wrapping_add(1),
+				}
+				self.pc.wrapping_add(1)
+			}
+			Instruction::DEC16(target) => {
+				match target {
+					IncDecTarget16::BC => self
+						.registers
+						.set_bc(self.registers.get_bc().wrapping_sub(1)),
+					IncDecTarget16::DE => self
+						.registers
+						.set_de(self.registers.get_de().wrapping_sub(1)),
+					IncDecTarget16::HL => self
+						.registers
+						.set_hl(self.registers.get_hl().wrapping_sub(1)),
+					IncDecTarget16::SP => self.sp = self.sp.wrapping_sub(1),
+				}
+				self.pc.wrapping_add(1)
+			}
+			//  ACCUMULATOR/FLAG
+			Instruction::RLCA => {
+				let carry = (self.registers.a & 0b1000_0000) >> 7;
+				self.registers.a = (self.registers.a << 1) | carry;
+				self.registers.f.zero = false; // RLCA uniquely clears the zero flag
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = carry == 1;
+				self.pc.wrapping_add(1)
+			}
+			Instruction::RRCA => {
+				let carry = self.registers.a & 0b0000_0001;
+				self.registers.a = (self.registers.a >> 1) | (carry << 7);
+				self.registers.f.zero = false; // RRCA uniquely clears the zero flag
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = carry == 1;
+				self.pc.wrapping_add(1)
+			}
+			Instruction::RLA => {
+				let bit7 = (self.registers.a & 0b1000_0000) >> 7;
+				let carry = if self.registers.f.carry { 1 } else { 0 };
+				self.registers.a = (self.registers.a << 1) | carry;
+				self.registers.f.zero = false;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = bit7 == 1;
+				self.pc.wrapping_add(1)
+			}
+			Instruction::RRA => {
+				let bit0 = self.registers.a & 0b0000_0001;
+				let carry = if self.registers.f.carry { 1 } else { 0 };
+				self.registers.a = (self.registers.a >> 1) | (carry << 7);
+				self.registers.f.zero = false;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = bit0 == 1;
+				self.pc.wrapping_add(1)
+			}
+			Instruction::CPL => {
+				self.registers.a = !self.registers.a;
+				self.registers.f.subtract = true;
+				self.registers.f.half_carry = true;
+				self.pc.wrapping_add(1)
+			}
+			Instruction::SCF => {
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = true;
+				self.pc.wrapping_add(1)
+			}
+			Instruction::CCF => {
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = !self.registers.f.carry;
+				self.pc.wrapping_add(1)
+			}
+			Instruction::DAA => {
+			// Logic from https://github.com/libraries/gameboy/blob/17e56feafdd412d5c8e5fe1471f112ec4b40322c/src/cpu.rs#L169
+				let mut a = self.registers.a;
+                
+                let mut adjust = if self.registers.f.carry { 0x60 } else { 0x00 };
+                
+                if self.registers.f.half_carry {
+                    adjust |= 0x06;
+                }
+                
+                if !self.registers.f.subtract {
+                    if a & 0x0F > 0x09 {
+                        adjust |= 0x06;
+                    }
+                    if a > 0x99 {
+                        adjust |= 0x60;
+                    }
+                    a = a.wrapping_add(adjust);
+                } else {
+                    a = a.wrapping_sub(adjust);
+                }
+                
+                self.registers.f.carry = adjust >= 0x60;
+                self.registers.f.half_carry = false;
+                self.registers.f.zero = a == 0x00;
+                self.registers.a = a;
+                
+                self.pc.wrapping_add(1)
+			}
+
 			Instruction::JP(test) => {
 				let jump_condition = match test {
 					JumpTest::NotZero => !self.registers.f.zero,
@@ -361,6 +482,13 @@ impl Cpu {
 			}
 			Instruction::LD(load_type) => match load_type {
 				LoadType::Byte(target, source) => {
+					// Calculating PC increment before moving target/source
+					let pc_inc = match (&target, &source) {
+						(LoadByteTarget::A16I, _) | (_, LoadByteSource::A16I) => 3,
+						(LoadByteTarget::HighD8, _) | (_, LoadByteSource::HighD8) => 2,
+						(_, LoadByteSource::D8) => 2,
+						_ => 1,
+					};
 					let source_value = match source {
 						LoadByteSource::A => self.registers.a,
 						LoadByteSource::B => self.registers.b,
@@ -371,6 +499,25 @@ impl Cpu {
 						LoadByteSource::L => self.registers.l,
 						LoadByteSource::D8 => self.read_next_byte(),
 						LoadByteSource::HLI => self.bus.read_byte(self.registers.get_hl()),
+						LoadByteSource::BCI => self.bus.read_byte(self.registers.get_bc()),
+						LoadByteSource::DEI => self.bus.read_byte(self.registers.get_de()),
+						LoadByteSource::HLIPlus => {
+							let addr = self.registers.get_hl();
+							self.registers.set_hl(addr.wrapping_add(1));
+							self.bus.read_byte(addr)
+						}
+						LoadByteSource::HLIMinus => {
+							let addr = self.registers.get_hl();
+							self.registers.set_hl(addr.wrapping_sub(1));
+							self.bus.read_byte(addr)
+						}
+						LoadByteSource::HighC => {
+							self.bus.read_byte(0xFF00 | (self.registers.c as u16))
+						}
+						LoadByteSource::HighD8 => {
+							self.bus.read_byte(0xFF00 | (self.read_next_byte() as u16))
+						}
+						LoadByteSource::A16I => self.bus.read_byte(self.read_next_word()),
 					};
 
 					match target {
@@ -384,16 +531,47 @@ impl Cpu {
 						LoadByteTarget::HLI => {
 							self.bus.write_byte(self.registers.get_hl(), source_value)
 						}
+						LoadByteTarget::BCI => {
+							self.bus.write_byte(self.registers.get_bc(), source_value)
+						}
+						LoadByteTarget::DEI => {
+							self.bus.write_byte(self.registers.get_de(), source_value)
+						}
+						LoadByteTarget::HLIPlus => {
+							let addr = self.registers.get_hl();
+							self.bus.write_byte(addr, source_value);
+							self.registers.set_hl(addr.wrapping_add(1));
+						}
+						LoadByteTarget::HLIMinus => {
+							let addr = self.registers.get_hl();
+							self.bus.write_byte(addr, source_value);
+							self.registers.set_hl(addr.wrapping_sub(1));
+						}
+						LoadByteTarget::HighC => self
+							.bus
+							.write_byte(0xFF00 | (self.registers.c as u16), source_value),
+						LoadByteTarget::HighD8 => {
+							let offset = self.read_next_byte() as u16;
+							self.bus.write_byte(0xFF00 | offset, source_value);
+						}
+						LoadByteTarget::A16I => {
+							self.bus.write_byte(self.read_next_word(), source_value)
+						}
 					};
 
-					match source {
-						LoadByteSource::D8 => self.pc.wrapping_add(2),
-						_ => self.pc.wrapping_add(1),
-					}
+					self.pc.wrapping_add(pc_inc)
 				}
 				LoadType::Word(target, source) => {
+					let pc_inc = match (&target, &source) {
+						(LoadWordTarget::A16I, _) => 3,
+						(_, LoadWordSource::D16) => 3,
+						_ => 1,
+					};
+
 					let source_value = match source {
 						LoadWordSource::D16 => self.read_next_word(),
+						LoadWordSource::SP => self.sp,
+						LoadWordSource::HL => self.registers.get_hl(),
 					};
 
 					match target {
@@ -401,11 +579,54 @@ impl Cpu {
 						LoadWordTarget::DE => self.registers.set_de(source_value),
 						LoadWordTarget::HL => self.registers.set_hl(source_value),
 						LoadWordTarget::SP => self.sp = source_value,
+						LoadWordTarget::A16I => {
+							let addr = self.read_next_word();
+							self.bus.write_byte(addr, (source_value & 0xFF) as u8);
+							self.bus
+								.write_byte(addr.wrapping_add(1), (source_value >> 8) as u8);
+						}
 					};
-
-					self.pc.wrapping_add(3)
+					self.pc.wrapping_add(pc_inc)
 				}
 			},
+			Instruction::STOP => {
+				// stubbing this by skipping 2 bytes. Original games rarely use STOP
+				// due to hardware glitches, and it naturally swallows the following byte.
+				// only need to implement the real logic later if I add Game Boy Color speed switching.
+				self.pc.wrapping_add(2)
+			}
+
+			Instruction::JPHL => self.registers.get_hl(),
+
+			Instruction::ADDSP => {
+				let offset = self.read_next_byte();
+				let sp = self.sp;
+
+				self.registers.f.zero = false;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = (sp & 0x0F) + ((offset as u16) & 0x0F) > 0x0F;
+				self.registers.f.carry = (sp & 0xFF) + ((offset as u16) & 0xFF) > 0xFF;
+
+				// Cast the offset to a signed i8, then sign-extend to u16 for actual math
+				self.sp = sp.wrapping_add((offset as i8 as i16) as u16);
+
+				self.pc.wrapping_add(2) // 1 byte opcode + 1 byte offset
+			}
+
+			Instruction::LDHLSP => {
+				let offset = self.read_next_byte();
+				let sp = self.sp;
+
+				self.registers.f.zero = false;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = (sp & 0x0F) + ((offset as u16) & 0x0F) > 0x0F;
+				self.registers.f.carry = (sp & 0xFF) + ((offset as u16) & 0xFF) > 0xFF;
+
+				let result = sp.wrapping_add((offset as i8 as i16) as u16);
+				self.registers.set_hl(result);
+
+				self.pc.wrapping_add(2)
+			}
 			Instruction::PUSH(target) => {
 				let value = match target {
 					StackTarget::AF => self.registers.get_af(),
@@ -447,6 +668,50 @@ impl Cpu {
 					JumpTest::Always => true,
 				};
 				self.return_(jump_condition)
+			}
+			Instruction::NOP => self.pc.wrapping_add(1),
+			Instruction::DI => {
+				// TODO: Add `pub interrupts_enabled: bool` to Cpu struct
+				// self.interrupts_enabled = false;
+				self.pc.wrapping_add(1)
+			}
+			Instruction::EI => {
+				// TODO: Add `pub interrupts_enabled: bool` to Cpu struct
+				// self.interrupts_enabled = true;
+				self.pc.wrapping_add(1)
+			}
+			Instruction::RETI => {
+				// Return and immediately Enable Interrupts
+				// self.interrupts_enabled = true;
+				self.return_(true)
+			}
+			Instruction::HALT => {
+				// TODO: Add `pub is_halted: bool` to Cpu struct
+				// self.is_halted = true;
+				self.pc.wrapping_add(1)
+			}
+			Instruction::RST(address) => {
+				let next_pc = self.pc.wrapping_add(1);
+				self.push(next_pc);
+				address
+			}
+			Instruction::JR(test) => {
+				let jump_condition = match test {
+					JumpTest::NotZero => !self.registers.f.zero,
+					JumpTest::NotCarry => !self.registers.f.carry,
+					JumpTest::Zero => self.registers.f.zero,
+					JumpTest::Carry => self.registers.f.carry,
+					JumpTest::Always => true,
+				};
+
+				let next_pc = self.pc.wrapping_add(2); // JR is a 2-byte instruction
+
+				if jump_condition {
+					let offset = self.bus.read_byte(self.pc.wrapping_add(1)) as i8;
+					next_pc.wrapping_add(offset as u16)
+				} else {
+					next_pc
+				}
 			}
 		}
 	}
