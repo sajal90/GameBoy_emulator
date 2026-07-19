@@ -7,7 +7,7 @@ mod memory;
 #[path = "registers.rs"]
 mod registers;
 
-use instruction::{ArithmeticTarget, HLTarget, Instruction, JumpTest};
+use instruction::{ArithmeticTarget, HLTarget, Instruction, JumpTest, PrefixTarget};
 use instruction::{IncDecTarget, IncDecTarget16, StackTarget};
 use instruction::{LoadByteSource, LoadByteTarget, LoadType, LoadWordSource, LoadWordTarget};
 use memory::MemoryBus;
@@ -215,6 +215,32 @@ impl Cpu {
 			ArithmeticTarget::L => self.registers.l,
 			ArithmeticTarget::HLI => self.bus.read_byte(self.registers.get_hl()),
 			ArithmeticTarget::D8 => self.read_next_byte(),
+		}
+	}
+
+	fn read_prefix_target(&self, target: &PrefixTarget) -> u8 {
+		match target {
+			PrefixTarget::B => self.registers.b,
+			PrefixTarget::C => self.registers.c,
+			PrefixTarget::D => self.registers.d,
+			PrefixTarget::E => self.registers.e,
+			PrefixTarget::H => self.registers.h,
+			PrefixTarget::L => self.registers.l,
+			PrefixTarget::HLI => self.bus.read_byte(self.registers.get_hl()),
+			PrefixTarget::A => self.registers.a,
+		}
+	}
+
+	fn write_prefix_target(&mut self, target: &PrefixTarget, value: u8) {
+		match target {
+			PrefixTarget::B => self.registers.b = value,
+			PrefixTarget::C => self.registers.c = value,
+			PrefixTarget::D => self.registers.d = value,
+			PrefixTarget::E => self.registers.e = value,
+			PrefixTarget::H => self.registers.h = value,
+			PrefixTarget::L => self.registers.l = value,
+			PrefixTarget::HLI => self.bus.write_byte(self.registers.get_hl(), value),
+			PrefixTarget::A => self.registers.a = value,
 		}
 	}
 
@@ -441,33 +467,33 @@ impl Cpu {
 				self.pc.wrapping_add(1)
 			}
 			Instruction::DAA => {
-			// Logic from https://github.com/libraries/gameboy/blob/17e56feafdd412d5c8e5fe1471f112ec4b40322c/src/cpu.rs#L169
+				// Logic from https://github.com/libraries/gameboy/blob/17e56feafdd412d5c8e5fe1471f112ec4b40322c/src/cpu.rs#L169
 				let mut a = self.registers.a;
-                
-                let mut adjust = if self.registers.f.carry { 0x60 } else { 0x00 };
-                
-                if self.registers.f.half_carry {
-                    adjust |= 0x06;
-                }
-                
-                if !self.registers.f.subtract {
-                    if a & 0x0F > 0x09 {
-                        adjust |= 0x06;
-                    }
-                    if a > 0x99 {
-                        adjust |= 0x60;
-                    }
-                    a = a.wrapping_add(adjust);
-                } else {
-                    a = a.wrapping_sub(adjust);
-                }
-                
-                self.registers.f.carry = adjust >= 0x60;
-                self.registers.f.half_carry = false;
-                self.registers.f.zero = a == 0x00;
-                self.registers.a = a;
-                
-                self.pc.wrapping_add(1)
+
+				let mut adjust = if self.registers.f.carry { 0x60 } else { 0x00 };
+
+				if self.registers.f.half_carry {
+					adjust |= 0x06;
+				}
+
+				if !self.registers.f.subtract {
+					if a & 0x0F > 0x09 {
+						adjust |= 0x06;
+					}
+					if a > 0x99 {
+						adjust |= 0x60;
+					}
+					a = a.wrapping_add(adjust);
+				} else {
+					a = a.wrapping_sub(adjust);
+				}
+
+				self.registers.f.carry = adjust >= 0x60;
+				self.registers.f.half_carry = false;
+				self.registers.f.zero = a == 0x00;
+				self.registers.a = a;
+
+				self.pc.wrapping_add(1)
 			}
 
 			Instruction::JP(test) => {
@@ -712,6 +738,137 @@ impl Cpu {
 				} else {
 					next_pc
 				}
+			}
+
+			// PREFIX INSTRUCTIONS
+			Instruction::RLC(target) => {
+				let value = self.read_prefix_target(&target);
+				let carry = (value & 0x80) >> 7;
+				let result = (value << 1) | carry;
+
+				self.registers.f.zero = result == 0;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = carry == 1;
+
+				self.write_prefix_target(&target, result);
+				self.pc.wrapping_add(2)
+			}
+			Instruction::RRC(target) => {
+				let value = self.read_prefix_target(&target);
+				let carry = value & 0x01;
+				let result = (value >> 1) | (carry << 7);
+
+				self.registers.f.zero = result == 0;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = carry == 1;
+
+				self.write_prefix_target(&target, result);
+				self.pc.wrapping_add(2)
+			}
+			Instruction::RL(target) => {
+				let value = self.read_prefix_target(&target);
+				let carry = if self.registers.f.carry { 1 } else { 0 };
+				let new_carry = (value & 0x80) >> 7;
+				let result = (value << 1) | carry;
+
+				self.registers.f.zero = result == 0;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = new_carry == 1;
+
+				self.write_prefix_target(&target, result);
+				self.pc.wrapping_add(2)
+			}
+			Instruction::RR(target) => {
+				let value = self.read_prefix_target(&target);
+				let carry = if self.registers.f.carry { 1 } else { 0 };
+				let new_carry = value & 0x01;
+				let result = (value >> 1) | (carry << 7);
+
+				self.registers.f.zero = result == 0;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = new_carry == 1;
+
+				self.write_prefix_target(&target, result);
+				self.pc.wrapping_add(2)
+			}
+			Instruction::SLA(target) => {
+				let value = self.read_prefix_target(&target);
+				let carry = (value & 0x80) >> 7;
+				let result = value << 1;
+
+				self.registers.f.zero = result == 0;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = carry == 1;
+
+				self.write_prefix_target(&target, result);
+				self.pc.wrapping_add(2)
+			}
+			Instruction::SRA(target) => {
+				let value = self.read_prefix_target(&target);
+				let carry = value & 0x01;
+				let result = (value >> 1) | (value & 0x80); // Bit 7 stays the same
+
+				self.registers.f.zero = result == 0;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = carry == 1;
+
+				self.write_prefix_target(&target, result);
+				self.pc.wrapping_add(2)
+			}
+			Instruction::SWAP(target) => {
+				let value = self.read_prefix_target(&target);
+				let result = (value << 4) | (value >> 4);
+
+				self.registers.f.zero = result == 0;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = false;
+
+				self.write_prefix_target(&target, result);
+				self.pc.wrapping_add(2)
+			}
+			Instruction::SRL(target) => {
+				let value = self.read_prefix_target(&target);
+				let carry = value & 0x01;
+				let result = value >> 1;
+
+				self.registers.f.zero = result == 0;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = false;
+				self.registers.f.carry = carry == 1;
+
+				self.write_prefix_target(&target, result);
+				self.pc.wrapping_add(2)
+			}
+			Instruction::BIT(bit, target) => {
+				let value = self.read_prefix_target(&target);
+
+				self.registers.f.zero = (value & (1 << bit)) == 0;
+				self.registers.f.subtract = false;
+				self.registers.f.half_carry = true;
+				// The carry flag is untouched by the BIT instruction
+
+				self.pc.wrapping_add(2)
+			}
+			Instruction::RES(bit, target) => {
+				let value = self.read_prefix_target(&target);
+				let result = value & !(1 << bit);
+
+				self.write_prefix_target(&target, result);
+				self.pc.wrapping_add(2)
+			}
+			Instruction::SET(bit, target) => {
+				let value = self.read_prefix_target(&target);
+				let result = value | (1 << bit);
+
+				self.write_prefix_target(&target, result);
+				self.pc.wrapping_add(2)
 			}
 		}
 	}

@@ -44,6 +44,18 @@ pub enum Instruction {
 	JPHL,
 	ADDSP,
 	LDHLSP,
+	// Prefix Instructions
+	RLC(PrefixTarget),
+	RRC(PrefixTarget),
+	RL(PrefixTarget),
+	RR(PrefixTarget),
+	SLA(PrefixTarget),
+	SRA(PrefixTarget),
+	SWAP(PrefixTarget),
+	SRL(PrefixTarget),
+	BIT(u8, PrefixTarget),
+	RES(u8, PrefixTarget),
+	SET(u8, PrefixTarget),
 }
 
 pub enum ArithmeticTarget {
@@ -163,6 +175,17 @@ pub enum StackTarget {
 	HL,
 }
 
+pub enum PrefixTarget {
+	B,
+	C,
+	D,
+	E,
+	H,
+	L,
+	HLI,
+	A,
+}
+
 impl Instruction {
 	pub fn from_byte(byte: u8, prefixed: bool) -> Option<Instruction> {
 		if prefixed {
@@ -173,7 +196,50 @@ impl Instruction {
 	}
 
 	fn from_byte_prefixed(byte: u8) -> Option<Instruction> {
+		// Extract the lowest 3 bits to determine the target register
+		let target = match byte & 0x07 {
+			0 => PrefixTarget::B,
+			1 => PrefixTarget::C,
+			2 => PrefixTarget::D,
+			3 => PrefixTarget::E,
+			4 => PrefixTarget::H,
+			5 => PrefixTarget::L,
+			6 => PrefixTarget::HLI,
+			7 => PrefixTarget::A,
+			_ => unreachable!(), // 0x07 mask guarantees 0-7
+		};
+
+		// Use the remaining bits to determine the instruction
 		match byte {
+			0x00..=0x3F => {
+				let operation = byte >> 3;
+				match operation {
+					0 => Some(Instruction::RLC(target)),
+					1 => Some(Instruction::RRC(target)),
+					2 => Some(Instruction::RL(target)),
+					3 => Some(Instruction::RR(target)),
+					4 => Some(Instruction::SLA(target)),
+					5 => Some(Instruction::SRA(target)),
+					6 => Some(Instruction::SWAP(target)),
+					7 => Some(Instruction::SRL(target)),
+					_ => unreachable!(),
+				}
+			}
+			// BIT ops
+			0x40..=0x7F => {
+				let bit = (byte >> 3) & 0x07;
+				Some(Instruction::BIT(bit, target))
+			}
+			// RES ops
+			0x80..=0xBF => {
+				let bit = (byte >> 3) & 0x07;
+				Some(Instruction::RES(bit, target))
+			}
+			// SET ops
+			0xC0..=0xFF => {
+				let bit = (byte >> 3) & 0x07;
+				Some(Instruction::SET(bit, target))
+			}
 			_ => None,
 		}
 	}
