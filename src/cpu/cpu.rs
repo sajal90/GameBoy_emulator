@@ -18,20 +18,36 @@ pub struct Cpu {
 	pc: u16,
 	sp: u16,
 	bus: MemoryBus,
+	interrupt_master_enable: bool,
+	halted: bool,
 }
 
 impl Cpu {
 	pub fn new() -> Self {
 		let cpu = Cpu {
 			registers: Registers::new(),
-			pc: 0,
-			sp: 0,
+			// Start at the Cartridge Entry Point to skip the missing Boot ROM
+			pc: 0x0100,
+			// The standard value of the Stack Pointer after the Boot ROM finishes
+			sp: 0xFFFE,
 			bus: MemoryBus::new(),
+			interrupt_master_enable: true,
+			halted: false,
 		};
 		cpu
 	}
 
-	fn step(&mut self) {
+	pub fn load_rom(&mut self, data: Vec<u8>) {
+		self.bus.load_rom(data);
+	}
+
+	pub fn step(&mut self) {
+		self.handle_interrupts();
+
+		if self.halted {
+			return;
+		}
+
 		let mut instruction_byte = self.bus.read_byte(self.pc);
 		let prefixed = instruction_byte == 0xCB;
 		if prefixed {
@@ -51,6 +67,47 @@ impl Cpu {
 		};
 
 		self.pc = next_pc;
+	}
+
+	fn handle_interrupts(&mut self) {
+		if !self.interrupt_master_enable && !self.halted {
+			return;
+		}
+
+		let interrupt_enable = self.bus.read_byte(0xFFFF);
+		let interrupt_flag = self.bus.read_byte(0xFF0F);
+
+		// Only the bottom 5 bits represent actual interrupts
+		let pending = interrupt_enable & interrupt_flag & 0x1F;
+
+		if pending != 0 {
+			// Any pending interrupt wakes the CPU up, even if IME is false
+			self.halted = false;
+
+			if self.interrupt_master_enable {
+				for bit in 0..5 {
+					if (pending & (1 << bit)) != 0 {
+						self.interrupt_master_enable = false;
+
+						self.bus.write_byte(0xFF0F, interrupt_flag & !(1 << bit));
+
+						self.push(self.pc);
+
+						self.pc = match bit {
+							0 => 0x0040, // VBlank
+							1 => 0x0048, // LCD STAT
+							2 => 0x0050, // Timer
+							3 => 0x0058, // Serial
+							4 => 0x0060, // Joypad
+							_ => unreachable!(),
+						};
+
+						// break after handling the highest priority interrupt
+						break;
+					}
+				}
+			}
+		}
 	}
 
 	fn read_next_byte(&self) -> u8 {
@@ -697,23 +754,21 @@ impl Cpu {
 			}
 			Instruction::NOP => self.pc.wrapping_add(1),
 			Instruction::DI => {
-				// TODO: Add `pub interrupts_enabled: bool` to Cpu struct
-				// self.interrupts_enabled = false;
+				self.interrupt_master_enable = false;
 				self.pc.wrapping_add(1)
 			}
 			Instruction::EI => {
-				// TODO: Add `pub interrupts_enabled: bool` to Cpu struct
-				// self.interrupts_enabled = true;
+				self.interrupt_master_enable = true;
+				// On real hardware, EI delays enabling interrupts by 1 instruction
+				// ignoring the delay for now
 				self.pc.wrapping_add(1)
 			}
 			Instruction::RETI => {
-				// Return and immediately Enable Interrupts
-				// self.interrupts_enabled = true;
+				self.interrupt_master_enable = true;
 				self.return_(true)
 			}
 			Instruction::HALT => {
-				// TODO: Add `pub is_halted: bool` to Cpu struct
-				// self.is_halted = true;
+				self.halted = true;
 				self.pc.wrapping_add(1)
 			}
 			Instruction::RST(address) => {
